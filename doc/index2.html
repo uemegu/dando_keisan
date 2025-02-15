@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>三角形ステージの弾道シミュレーション（修正版）</title>
+    <style>
+      body {
+        text-align: center;
+      }
+      canvas {
+        border: 1px solid #000;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>三角形ステージの弾道シミュレーション（修正版）</h1>
+    <p>
+      ステージ内をクリックすると、球が発射されセルが通過したら色が変わります。
+    </p>
+    <canvas id="canvas" width="400" height="400"></canvas>
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      // 【ステージ設定】
+      const A = { x: canvas.width / 2, y: 0 }; // 上頂点
+      const B = { x: 0, y: canvas.height }; // 左下頂点
+      const C = { x: canvas.width, y: canvas.height }; // 右下頂点
+
+      // 細分割数
+      const divisions = 20;
+
+      // バリセン座標でグリッド点を作成
+      let points = [];
+      for (let i = 0; i <= divisions; i++) {
+        points[i] = [];
+        for (let j = 0; j <= divisions - i; j++) {
+          const t = (divisions - i - j) / divisions;
+          const u = i / divisions;
+          const v = j / divisions;
+          const x = t * A.x + u * B.x + v * C.x;
+          const y = t * A.y + u * B.y + v * C.y;
+          points[i][j] = { x, y };
+        }
+      }
+      // 各小三角形セルを作成
+      let cells = [];
+      for (let i = 0; i < divisions; i++) {
+        for (let j = 0; j < divisions - i; j++) {
+          // セル 1: [P(i,j), P(i+1,j), P(i,j+1)]
+          cells.push({
+            v1: points[i][j],
+            v2: points[i + 1][j],
+            v3: points[i][j + 1],
+            visited: false,
+          });
+          if (i + j < divisions - 1) {
+            // セル 2: [P(i+1,j), P(i+1,j+1), P(i,j+1)]
+            cells.push({
+              v1: points[i + 1][j],
+              v2: points[i + 1][j + 1],
+              v3: points[i][j + 1],
+              visited: false,
+            });
+          }
+        }
+      }
+
+      // ステージ境界の法線計算（外向き）
+      const centroid = {
+        x: (A.x + B.x + C.x) / 3,
+        y: (A.y + B.y + C.y) / 3,
+      };
+      const edges = [
+        { p1: A, p2: B },
+        { p1: B, p2: C },
+        { p1: C, p2: A },
+      ];
+      edges.forEach((edge) => {
+        edge.normal = computeNormal(edge.p1, edge.p2);
+      });
+      function computeNormal(p1, p2) {
+        let nx = p2.y - p1.y;
+        let ny = -(p2.x - p1.x);
+        // 内部（centroid）がこの辺のどちら側か判定し、内側が負になるように調整
+        const vx = centroid.x - p1.x;
+        const vy = centroid.y - p1.y;
+        if (nx * vx + ny * vy > 0) {
+          nx = -nx;
+          ny = -ny;
+        }
+        const len = Math.hypot(nx, ny);
+        return { x: nx / len, y: ny / len };
+      }
+
+      // 【ボール設定】
+      let ball = null;
+      const speed = 10;
+      const angle = 1; // 発射角（ラジアン）
+      const initialVx = speed * Math.cos(angle);
+      const initialVy = speed * Math.sin(angle);
+
+      // 点が三角形内にあるかの判定関数
+      function pointInTriangle(pt, v1, v2, v3) {
+        function sign(p1, p2, p3) {
+          return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+        }
+        const d1 = sign(pt, v1, v2);
+        const d2 = sign(pt, v2, v3);
+        const d3 = sign(pt, v3, v1);
+        const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+        const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+        return !(hasNeg && hasPos);
+      }
+
+      // 【更新処理】
+      function update() {
+        if (ball) {
+          ball.x += ball.vx;
+          ball.y += ball.vy;
+
+          // 各境界（3辺）との衝突判定・反射処理
+          edges.forEach((edge) => {
+            const dx = ball.x - edge.p1.x;
+            const dy = ball.y - edge.p1.y;
+            const dist = dx * edge.normal.x + dy * edge.normal.y;
+            // 修正：内部は dist <= -ball.radius となるので、
+            // 衝突は「dist > -ball.radius」の場合に行う
+            if (dist > -ball.radius) {
+              const velDot = ball.vx * edge.normal.x + ball.vy * edge.normal.y;
+              if (velDot > 0) {
+                // 外向きに動いているとき
+                // 反射： v' = v - 2*(v・n)*n
+                ball.vx = ball.vx - 2 * velDot * edge.normal.x;
+                ball.vy = ball.vy - 2 * velDot * edge.normal.y;
+                // 位置補正（壁にぴったりになるように）
+                const correction = -ball.radius - dist;
+                ball.x += correction * edge.normal.x;
+                ball.y += correction * edge.normal.y;
+              }
+            }
+          });
+
+          // ボールが含まれるセルを訪問済みにする
+          cells.forEach((cell) => {
+            if (
+              !cell.visited &&
+              pointInTriangle(
+                { x: ball.x, y: ball.y },
+                cell.v1,
+                cell.v2,
+                cell.v3
+              )
+            ) {
+              cell.visited = true;
+            }
+          });
+        }
+      }
+
+      // 【描画処理】
+      function drawGrid() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // 各セル（小三角形）を描画
+        cells.forEach((cell) => {
+          ctx.beginPath();
+          ctx.moveTo(cell.v1.x, cell.v1.y);
+          ctx.lineTo(cell.v2.x, cell.v2.y);
+          ctx.lineTo(cell.v3.x, cell.v3.y);
+          ctx.closePath();
+          ctx.fillStyle = cell.visited ? "#a0d8f1" : "#ffffff";
+          ctx.fill();
+          ctx.strokeStyle = "#ccc";
+          ctx.stroke();
+        });
+        // ステージ境界（三角形）の描画
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y);
+        ctx.lineTo(B.x, B.y);
+        ctx.lineTo(C.x, C.y);
+        ctx.closePath();
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // ボール描画
+        if (ball) {
+          ctx.beginPath();
+          ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+          ctx.fillStyle = "red";
+          ctx.fill();
+        }
+      }
+
+      // 全セルが訪問済みかチェック
+      function allVisited() {
+        return cells.every((cell) => cell.visited);
+      }
+
+      // 【アニメーションループ】
+      function animate() {
+        update();
+        drawGrid();
+
+        if (allVisited()) {
+          ctx.font = "30px Arial";
+          ctx.fillStyle = "black";
+          ctx.fillText("Complete!", canvas.width / 2 - 70, canvas.height / 2);
+        }
+        requestAnimationFrame(animate);
+      }
+
+      // 【クリックイベント】（ステージ内なら発射）
+      canvas.addEventListener("click", function (e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const pt = { x, y };
+        if (!pointInTriangle(pt, A, B, C)) {
+          return;
+        }
+        // セルのリセット
+        cells.forEach((cell) => (cell.visited = false));
+        // 新たなボール生成
+        ball = {
+          x: x,
+          y: y,
+          vx: initialVx,
+          vy: initialVy,
+          radius: 5,
+        };
+      });
+
+      // アニメーション開始
+      animate();
+    </script>
+  </body>
+</html>

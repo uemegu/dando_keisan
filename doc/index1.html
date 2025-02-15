@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>弾道計算シミュレーション</title>
+    <style>
+      body {
+        text-align: center;
+      }
+      canvas {
+        border: 1px solid #000;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>弾道計算シミュレーション</h1>
+    <p>キャンバス上をクリックすると、クリック位置から球が発射されます。</p>
+    <canvas id="canvas" width="400" height="400"></canvas>
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      // グリッドの設定
+      const gridCount = 20; // 20×20のグリッド
+      const cellWidth = canvas.width / gridCount;
+      const cellHeight = canvas.height / gridCount;
+
+      // グリッドの状態：false=未訪問、true=訪問済み
+      let grid = [];
+      for (let i = 0; i < gridCount; i++) {
+        grid[i] = [];
+        for (let j = 0; j < gridCount; j++) {
+          grid[i][j] = false;
+        }
+      }
+
+      // ボールの状態（未発射時はnull）
+      let ball = null;
+
+      // ボールの初速（角度は1ラジアン＝約57°；この角度はirrationalなので全域を覆う可能性があります）
+      const speed = 30;
+      const angle = 1; // 固定角度
+      const initialVx = speed * Math.cos(angle);
+      const initialVy = speed * Math.sin(angle);
+
+      // 全てのセルが訪問済みかチェック
+      function allVisited() {
+        for (let i = 0; i < gridCount; i++) {
+          for (let j = 0; j < gridCount; j++) {
+            if (!grid[i][j]) return false;
+          }
+        }
+        return true;
+      }
+
+      // グリッドを描画（訪問済みセルは色付け）
+      function drawGrid() {
+        for (let i = 0; i < gridCount; i++) {
+          for (let j = 0; j < gridCount; j++) {
+            if (grid[i][j]) {
+              ctx.fillStyle = "#a0d8f1"; // 訪問済みセルの色
+            } else {
+              ctx.fillStyle = "#ffffff"; // 未訪問セルは白
+            }
+            ctx.fillRect(i * cellWidth, j * cellHeight, cellWidth, cellHeight);
+            ctx.strokeStyle = "#ccc";
+            ctx.strokeRect(
+              i * cellWidth,
+              j * cellHeight,
+              cellWidth,
+              cellHeight
+            );
+          }
+        }
+      }
+
+      // ボールを描画
+      function drawBall() {
+        if (ball) {
+          ctx.beginPath();
+          ctx.arc(ball.x, ball.y, ball.radius, 0, 2 * Math.PI);
+          ctx.fillStyle = "red";
+          ctx.fill();
+        }
+      }
+
+      // ボールの状態更新
+      function update() {
+        if (ball) {
+          ball.x += ball.vx;
+          ball.y += ball.vy;
+
+          // 壁との衝突判定（球の半径を考慮）
+          if (ball.x - ball.radius < 0) {
+            ball.x = ball.radius;
+            ball.vx *= -1;
+          } else if (ball.x + ball.radius > canvas.width) {
+            ball.x = canvas.width - ball.radius;
+            ball.vx *= -1;
+          }
+          if (ball.y - ball.radius < 0) {
+            ball.y = ball.radius;
+            ball.vy *= -1;
+          } else if (ball.y + ball.radius > canvas.height) {
+            ball.y = canvas.height - ball.radius;
+            ball.vy *= -1;
+          }
+
+          // 現在位置のグリッドセルを訪問済みにする
+          const cellX = Math.floor(ball.x / cellWidth);
+          const cellY = Math.floor(ball.y / cellHeight);
+          if (
+            cellX >= 0 &&
+            cellX < gridCount &&
+            cellY >= 0 &&
+            cellY < gridCount
+          ) {
+            grid[cellX][cellY] = true;
+          }
+        }
+      }
+
+      // アニメーションループ
+      function animate() {
+        update();
+        drawGrid();
+        drawBall();
+
+        // 全セル訪問済みならメッセージ表示
+        if (allVisited()) {
+          ctx.font = "30px Arial";
+          ctx.fillStyle = "black";
+          ctx.fillText("Complete!", canvas.width / 2 - 70, canvas.height / 2);
+        }
+
+        requestAnimationFrame(animate);
+      }
+
+      // クリックイベント：クリック位置から球を発射（新規発射時はグリッドリセット）
+      canvas.addEventListener("click", function (e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // グリッドリセット
+        for (let i = 0; i < gridCount; i++) {
+          for (let j = 0; j < gridCount; j++) {
+            grid[i][j] = false;
+          }
+        }
+
+        // 新しいボールを生成
+        ball = {
+          x: x,
+          y: y,
+          vx: initialVx,
+          vy: initialVy,
+          radius: 5,
+        };
+      });
+
+      // アニメーション開始
+      animate();
+    </script>
+  </body>
+</html>

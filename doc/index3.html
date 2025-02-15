@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>丸のステージの弾道シミュレーション</title>
+    <style>
+      body {
+        text-align: center;
+      }
+      canvas {
+        border: 1px solid #000;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>丸のステージの弾道シミュレーション</h1>
+    <p>
+      円形のステージ内をクリックすると、クリック位置から球が発射され、通過したセルの色が変わります。
+    </p>
+    <canvas id="canvas" width="400" height="400"></canvas>
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      // 【ステージ設定】
+      // ステージはキャンバス中心を中心とした円
+      const stageCenter = { x: canvas.width / 2, y: canvas.height / 2 };
+      const stageRadius = canvas.width / 2 - 10; // キャンバス縁から10pxのマージン
+
+      // 【グリッド設定】
+      // 円の内側を覆うように、円の外接矩形内にグリッドを作成
+      const gridCount = 20;
+      const cellWidth = (2 * stageRadius) / gridCount;
+      const cellHeight = (2 * stageRadius) / gridCount;
+      let cells = [];
+      // 各セルは、円の内側（少なくとも1点が含まれる）のみ対象とする
+      for (let i = 0; i < gridCount; i++) {
+        for (let j = 0; j < gridCount; j++) {
+          const cellX = stageCenter.x - stageRadius + i * cellWidth;
+          const cellY = stageCenter.y - stageRadius + j * cellHeight;
+          // 各セルの4隅のうち1つでも円内にあれば、そのセルをステージ領域とみなす
+          function isInside(x, y) {
+            return (
+              (x - stageCenter.x) ** 2 + (y - stageCenter.y) ** 2 <=
+              stageRadius ** 2
+            );
+          }
+          if (
+            isInside(cellX, cellY) ||
+            isInside(cellX + cellWidth, cellY) ||
+            isInside(cellX, cellY + cellHeight) ||
+            isInside(cellX + cellWidth, cellY + cellHeight)
+          ) {
+            cells.push({
+              x: cellX,
+              y: cellY,
+              width: cellWidth,
+              height: cellHeight,
+              visited: false,
+            });
+          }
+        }
+      }
+
+      // 【ボール設定】
+      let ball = null;
+      const speed = 10;
+      const angle = 1; // 発射角（ラジアン）
+      const initialVx = speed * Math.cos(angle);
+      const initialVy = speed * Math.sin(angle);
+
+      // 【更新処理】
+      function update() {
+        if (ball) {
+          ball.x += ball.vx;
+          ball.y += ball.vy;
+
+          // 円形ステージの境界との衝突判定・反射処理
+          const dx = ball.x - stageCenter.x;
+          const dy = ball.y - stageCenter.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist + ball.radius > stageRadius) {
+            // 衝突している場合、球中心からステージ中心への単位法線
+            const n = { x: dx / dist, y: dy / dist };
+            // ボールの速度と法線との内積
+            const vDot = ball.vx * n.x + ball.vy * n.y;
+            if (vDot > 0) {
+              // 球が外向きに動いている場合のみ反射
+              ball.vx = ball.vx - 2 * vDot * n.x;
+              ball.vy = ball.vy - 2 * vDot * n.y;
+              // 球の中心がちょうど境界に接するように位置を補正
+              ball.x = stageCenter.x + n.x * (stageRadius - ball.radius);
+              ball.y = stageCenter.y + n.y * (stageRadius - ball.radius);
+            }
+          }
+
+          // ボールが存在するセルを「訪問済み」にする
+          // ボール位置から、グリッドのインデックスを計算
+          const relX = ball.x - (stageCenter.x - stageRadius);
+          const relY = ball.y - (stageCenter.y - stageRadius);
+          const i = Math.floor(relX / cellWidth);
+          const j = Math.floor(relY / cellHeight);
+          // cells 配列内で、ボールが含まれるセルを探索して更新
+          cells.forEach((cell) => {
+            if (
+              ball.x >= cell.x &&
+              ball.x < cell.x + cell.width &&
+              ball.y >= cell.y &&
+              ball.y < cell.y + cell.height
+            ) {
+              cell.visited = true;
+            }
+          });
+        }
+      }
+
+      // 【描画処理】
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // グリッドセルの描画
+        cells.forEach((cell) => {
+          ctx.beginPath();
+          ctx.rect(cell.x, cell.y, cell.width, cell.height);
+          ctx.fillStyle = cell.visited ? "#a0d8f1" : "#ffffff";
+          ctx.fill();
+          ctx.strokeStyle = "#ccc";
+          ctx.stroke();
+        });
+
+        // ステージ境界（円）の描画
+        ctx.beginPath();
+        ctx.arc(stageCenter.x, stageCenter.y, stageRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // ボールの描画
+        if (ball) {
+          ctx.beginPath();
+          ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+          ctx.fillStyle = "red";
+          ctx.fill();
+        }
+      }
+
+      // 全てのセルが訪問済みかチェック
+      function allVisited() {
+        return cells.every((cell) => cell.visited);
+      }
+
+      // 【アニメーションループ】
+      function animate() {
+        update();
+        draw();
+        if (allVisited()) {
+          ctx.font = "30px Arial";
+          ctx.fillStyle = "black";
+          ctx.fillText("Complete!", canvas.width / 2 - 70, canvas.height / 2);
+        }
+        requestAnimationFrame(animate);
+      }
+
+      // 【クリックイベント】
+      // 円形ステージ内をクリックした位置からボール発射
+      canvas.addEventListener("click", function (e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        // クリック位置がステージ内かチェック
+        const dx = x - stageCenter.x;
+        const dy = y - stageCenter.y;
+        if (dx * dx + dy * dy > stageRadius * stageRadius) {
+          return; // ステージ外なら無視
+        }
+        // セルの訪問状態をリセット
+        cells.forEach((cell) => (cell.visited = false));
+        // 新しいボールを生成
+        ball = {
+          x: x,
+          y: y,
+          vx: initialVx,
+          vy: initialVy,
+          radius: 5,
+        };
+      });
+
+      animate();
+    </script>
+  </body>
+</html>
